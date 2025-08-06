@@ -1,0 +1,28 @@
+{
+  "name": "casaboxserver",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PaniniRS/CasaBoxServer.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/PaniniRS/CasaBoxServer/issues"
+  },
+  "homepage": "https://github.com/PaniniRS/CasaBoxServer#readme",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "mysql2": "^3.14.3",
+    "validator": "^13.15.15"
+  }
+}
