@@ -28,7 +28,7 @@ const conn = mysql.createConnection({
   host: process.env.DB_HOST, // Database host (e.g., localhost, AWS RDS endpoint)
   user: process.env.DB_USER, // Database username
   password: process.env.DB_PASS, // Database password
-  database: "Qcodeigniter", // Database name from your schema
+  database: process.env.DB_DATABASE_NAME, // Database name from your schema
 });
 
 /**
@@ -142,7 +142,7 @@ authDataPool.getUserProfile = (userId) => {
         UserID, Username, Email, PhoneNumber, FirstName, LastName,
         Role, ProfilePictureURL, RegistrationDate, LastLoginDate, 
         IsVerified, AverageProviderRating, AverageSeekerRating,
-        AddressID1, AddressID2
+        AddressLine1, AddressLine2
       FROM User 
       WHERE UserID = ?
     `;
@@ -165,8 +165,9 @@ authDataPool.getUserProfile = (userId) => {
  * @param {Object} userData - User and address information from the form.
  * @returns {Promise<Object>} Result object with success status and user data or error.
  */
-authDataPool.createUser = async (userData) => {
-  return new Promise((resolve, reject) => {
+
+authDataPool.createUser = (userData) => {
+  return new Promise((resolve) => {
     conn.beginTransaction(async (transactionErr) => {
       if (transactionErr) {
         console.error("Error starting transaction:", transactionErr);
@@ -187,6 +188,7 @@ authDataPool.createUser = async (userData) => {
           number,
         } = userData;
 
+        // 1. VALIDATION
         if (
           !username ||
           !password ||
@@ -206,11 +208,11 @@ authDataPool.createUser = async (userData) => {
         if (!validatePassword(password)) {
           return resolve({
             success: false,
-            message:
-              "Password must be at least 8 characters with uppercase, lowercase, and a number.",
+            message: "Password format is invalid.",
           });
         }
 
+        //2. DUPLICATE USER CHECKS
         const existingUserByUsername = await authDataPool.getUserByUsername(
           username
         );
@@ -228,70 +230,56 @@ authDataPool.createUser = async (userData) => {
           });
         }
 
-        const saltRounds = 12;
-        const passwordHash = await bcrypt.hash(password, saltRounds);
+        //3. HASH PASSWORD
+        const passwordHash = await bcrypt.hash(password, 12);
 
-        const fullStreetName = `${number || ""} ${streetName}`.trim();
-        const addressQuery =
-          "INSERT INTO Address (City, PostalCode, StreetName) VALUES (?, ?, ?)";
-        const addressValues = [city, postalCode, fullStreetName];
+        //4. GET OR CREATE ADDRESS
+        const addressId = await getOrCreateAddress(
+          { streetName, city, postalCode, number },
+          conn
+        );
 
-        conn.query(addressQuery, addressValues, (addressErr, addressResult) => {
-          if (addressErr) {
-            console.error("Error creating address:", addressErr);
+        //5. INSERT USER
+        const userQuery = `
+          INSERT INTO User (Username, PasswordHash, Email, Role, RegistrationDate, IsVerified, AddressLine1) 
+          VALUES (?, ?, ?, ?, NOW(), ?, ?)`;
+        const userValues = [
+          username,
+          passwordHash,
+          email,
+          "Seeker",
+          0,
+          addressId,
+        ];
+
+        conn.query(userQuery, userValues, (userErr, userResult) => {
+          if (userErr) {
+            console.error("Error creating user:", userErr);
             return conn.rollback(() =>
               resolve({
                 success: false,
-                message: "Database error during address creation.",
+                message: "Database error during user creation.",
               })
             );
           }
 
-          const newAddressId = addressResult.insertId;
-
-          const userQuery = `
-                        INSERT INTO User (
-                            Username, PasswordHash, Email, Role, RegistrationDate, IsVerified, AddressID1
-                        ) VALUES (?, ?, ?, ?, NOW(), ?, ?)
-                    `;
-          const userValues = [
-            username,
-            passwordHash,
-            email,
-            "Seeker",
-            0,
-            newAddressId,
-          ];
-
-          conn.query(userQuery, userValues, (userErr, userResult) => {
-            if (userErr) {
-              console.error("Error creating user:", userErr);
+          //6. COMMIT TRANSACTION
+          conn.commit((commitErr) => {
+            if (commitErr) {
+              console.error("Error committing transaction:", commitErr);
               return conn.rollback(() =>
-                resolve({
-                  success: false,
-                  message: "Database error during user creation.",
-                })
+                resolve({ success: false, message: "Database commit error." })
               );
             }
-
-            conn.commit((commitErr) => {
-              if (commitErr) {
-                console.error("Error committing transaction:", commitErr);
-                return conn.rollback(() =>
-                  resolve({ success: false, message: "Database commit error." })
-                );
-              }
-
-              resolve({
-                success: true,
-                message: "User created successfully!",
-                data: {
-                  userId: userResult.insertId,
-                  username,
-                  email,
-                  role: "Seeker",
-                },
-              });
+            resolve({
+              success: true,
+              message: "User created successfully!",
+              data: {
+                userId: userResult.insertId,
+                username,
+                email,
+                role: "Seeker",
+              },
             });
           });
         });
@@ -312,22 +300,34 @@ authDataPool.createUser = async (userData) => {
 //                    USER AUTHENTICATION OPERATIONS
 // ===============================================================
 
-authDataPool.authenticateUser = async (username, password) => {
+authDataPool.authenticateUser = async (identifier, password) => {
   try {
-    if (!username || !password) {
-      return { success: false, message: "Username and password are required" };
+    if (!identifier || !password) {
+      return { success: false, message: "Username/Email and password are required" };
     }
 
-    const users = await authDataPool.getUserByUsername(username);
+    // Determine if the identifier is an email or a username
+    const isEmail = validator.isEmail(identifier);
+    const query = isEmail
+      ? "SELECT * FROM User WHERE Email = ?"
+      : "SELECT * FROM User WHERE Username = ?";
+
+    const users = await new Promise((resolve, reject) => {
+      conn.query(query, [identifier], (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
+      });
+    });
+
     if (users.length === 0) {
-      return { success: false, message: "Invalid username or password" };
+      return { success: false, message: "Invalid credentials." };
     }
 
     const user = users[0];
     const passwordMatch = await bcrypt.compare(password, user.PasswordHash);
 
     if (!passwordMatch) {
-      return { success: false, message: "Invalid username or password" };
+      return { success: false, message: "Invalid credentials." };
     }
 
     await authDataPool.updateLastLogin(user.UserID);
@@ -429,6 +429,25 @@ authDataPool.updateVerificationStatus = (userId, isVerified) => {
   });
 };
 
+authDataPool.checkAddressExists = (streetName, city, postalCode) => {
+  return new Promise((resolve, reject) => {
+    const query =
+      "SELECT AddressID FROM Address WHERE StreetName = ? AND City = ? AND PostalCode = ?";
+    const values = [streetName, city, postalCode];
+    conn.query(query, values, (err, results) => {
+      if (err) {
+        console.error("Error checking address existence:", err);
+        return reject(err);
+      }
+      if (results.length > 0) {
+        return resolve({ exists: true, addressId: results[0].AddressID });
+      } else {
+        return resolve({ exists: false });
+      }
+    });
+  });
+};
+
 // ===============================================================
 //                    UTILITY FUNCTIONS
 // ===============================================================
@@ -455,6 +474,51 @@ authDataPool.closeConnection = () => {
       console.log("Database connection closed");
       resolve();
     });
+  });
+};
+
+// ===============================================================
+//                      Helper Functions
+// ===============================================================
+/**
+ * Checks for an existing address or creates a new one.
+ * IMPORTANT: This function should be called from within an active transaction.
+ * @param {object} addressData - Contains streetName, city, postalCode, number.
+ * @param {object} dbConnection - The active database connection object for the transaction.
+ * @returns {Promise<number>} The ID of the existing or newly created address.
+ */
+const getOrCreateAddress = (addressData, dbConnection) => {
+  return new Promise((resolve, reject) => {
+    const { streetName, city, postalCode, number } = addressData;
+    const fullStreetName = `${number || ""} ${streetName}`.trim();
+
+    const checkQuery =
+      "SELECT AddressID FROM Address WHERE StreetName = ? AND City = ? AND PostalCode = ?";
+    dbConnection.query(
+      checkQuery,
+      [fullStreetName, city, postalCode],
+      (checkErr, checkResults) => {
+        if (checkErr) return reject(checkErr);
+
+        if (checkResults.length > 0) {
+          // Address exists, return its ID
+          return resolve(checkResults[0].AddressID);
+        } else {
+          // Address does not exist, create it
+          const insertQuery =
+            "INSERT INTO Address (StreetName, City, PostalCode) VALUES (?, ?, ?)";
+          dbConnection.query(
+            insertQuery,
+            [fullStreetName, city, postalCode],
+            (insertErr, insertResult) => {
+              if (insertErr) return reject(insertErr);
+              // Return the new ID
+              resolve(insertResult.insertId);
+            }
+          );
+        }
+      }
+    );
   });
 };
 

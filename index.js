@@ -24,7 +24,7 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: `http://88.200.63.148:3081`,
     methods: ["POST", "PUT", "GET", "OPTIONS", "HEAD", "DELETE"],
     credentials: true,
   })
@@ -33,53 +33,34 @@ app.use(
 // ===============================================================
 //                      Middleware / Imports
 // ===============================================================
+console.log("\n\n\tLoading Middleware and imports...");
 //Import DB connection
 const { authDataPool, validateEmail } = require("./DB/dbConn.js");
 
 //Import our custom modules-controllers
+console.log("\tMiddleware and imports loaded successfully!");
 
 // ===============================================================
 //                      Routes
 // ===============================================================
-//This means whenever we do url..../novice, we will be redirected to the novice controller
-//If we change the app.get("/") to app.get("/n") inside our novice.js file, we will need to go to url..../novice/n
-app.use(express.json());
+
+app.use(express.json()); // Parse JSON bodies (as sent by API clients)
+console.log("\tImporting routes...");
+
+const authRoutes = require("./routes/userAuthentication.js"); //user login, register, etc.
+app.use("/auth", authRoutes);
 
 app.get("/", (req, res) => {
   res.send("hola DB Tutorial");
 });
-
-// ===============================================================
-//                      Routes - DB
-
-//Register route
-app.post("/register", async (req, res) => {
-  const result = await authDataPool.createUser(req.body);
-
-  if (result.success) {
-    res.status(201).json(result);
-  } else {
-    res.status(400).json(result);
-  }
-});
-//Login route
-app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-  const result = await authDataPool.authenticateUser(username, password);
-
-  if (result.success) {
-    // Set session or generate JWT token here
-    req.session.userId = result.data.UserID;
-    res.json(result);
-  } else {
-    res.status(401).json(result);
-  }
-});
+console.log("\tImported all routes successfully!");
 
 // ===============================================================
 //                      App init
 // ===============================================================
 ///App listening on port
-app.listen(process.env.PORT || port, () => {
-  console.log(`Server is running on port: ${process.env.PORT || port}`);
+const host = "0.0.0.0";
+app.listen(process.env.PORT || port, host, () => {
+  console.log(`--Server is running on port: ${process.env.PORT || port}`);
+  console.log(`--Server is running on host: ${host}`);
 });
