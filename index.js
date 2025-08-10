@@ -45,10 +45,14 @@ console.log("\tMiddleware and imports loaded successfully!");
 // ===============================================================
 
 app.use(express.json()); // Parse JSON bodies (as sent by API clients)
+app.use("/uploads", express.static("uploads"));
 console.log("\tImporting routes...");
 
 const authRoutes = require("./routes/userAuthentication.js"); //user login, register, etc.
 app.use("/auth", authRoutes);
+
+const listingRoutes = require("./routes/listing.js"); // search, searchall
+app.use("/listings", listingRoutes);
 
 app.get("/", (req, res) => {
   res.send("hola DB Tutorial");

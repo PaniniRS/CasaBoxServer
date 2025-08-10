@@ -51,4 +51,24 @@ router.post("/logout", (req, res) => {
   }
 });
 
+router.get("/session", async (req, res) => {
+  if (req.session.userId) {
+    try {
+      // If a session exists, fetch the user's profile
+      const userProfile = await authDataPool.getUserProfile(req.session.userId);
+      if (userProfile) {
+        res.json({ success: true, user: userProfile });
+      } else {
+        // This can happen if the user was deleted but the session remains
+        res.json({ success: false, message: "User not found." });
+      }
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Server error." });
+    }
+  } else {
+    // If no session exists, the user is not logged in
+    res.json({ success: false, message: "No active session." });
+  }
+});
+
 module.exports = router;
