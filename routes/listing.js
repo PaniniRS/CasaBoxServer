@@ -92,4 +92,50 @@ router.post("/create", upload.array("listingImages", 4), async (req, res) => {
   }
 });
 
+// GET /listings/:id - Fetches a single detailed listing
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const listing = await authDataPool.getListingById(id);
+    if (listing) {
+      res.json({ success: true, data: listing });
+    } else {
+      res.status(404).json({ success: false, message: "Listing not found." });
+    }
+  } catch (error) {
+    console.error("Error fetching listing by ID:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch listing." });
+  }
+});
+
+// POST /listings/book - Creates a new booking
+router.post("/book", async (req, res) => {
+  if (!req.session.userId) {
+    return res
+      .status(401)
+      .json({ success: false, message: "You must be logged in to book." });
+  }
+
+  const bookingData = req.body;
+  bookingData.seekerId = req.session.userId;
+
+  try {
+    const result = await authDataPool.createBooking(bookingData);
+    if (result.success) {
+      res.status(201).json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error("Error creating booking:", error);
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal server error during booking.",
+      });
+  }
+});
 module.exports = router;
