@@ -130,12 +130,81 @@ router.post("/book", async (req, res) => {
     }
   } catch (error) {
     console.error("Error creating booking:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal server error during booking.",
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error during booking.",
+    });
   }
 });
+
+// GET /listings/provider - Fetches all listings for the currently logged-in provider
+router.get("/provider/mine", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  try {
+    const listings = await authDataPool.getListingsByProvider(
+      req.session.userId
+    );
+    res.json({ success: true, data: listings });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch provider listings." });
+  }
+});
+
+// GET /listings/:id/requests - Fetches booking requests for a specific listing
+router.get("/:id/requests", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  try {
+    const requests = await authDataPool.getBookingRequestsByListing(
+      req.params.id,
+      req.session.userId
+    );
+    res.json({ success: true, data: requests });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch booking requests." });
+  }
+});
+
+// POST /listings/bookings/:bookingId/update - Updates the status of a booking
+router.post("/bookings/:bookingId/update", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  try {
+    const { status } = req.body;
+    const result = await authDataPool.updateBookingStatus(
+      req.params.bookingId,
+      status,
+      req.session.userId
+    );
+    res.json(result);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to update booking status." });
+  }
+});
+
+// GET /listings/seeker/mine - Fetches all bookings for the currently logged-in seeker
+router.get("/seeker/mine", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  try {
+    const bookings = await authDataPool.getBookingsBySeeker(req.session.userId);
+    res.json({ success: true, data: bookings });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch seeker bookings." });
+  }
+});
+
 module.exports = router;

@@ -119,12 +119,13 @@ authDataPool.getUserProfile = (userId) => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT 
-        UserID, Username, Email, PhoneNumber, FirstName, LastName,
-        Role, ProfilePictureURL, RegistrationDate, LastLoginDate, 
-        IsVerified, AverageProviderRating, AverageSeekerRating,
-        AddressLine1, AddressLine2
-      FROM User 
-      WHERE UserID = ?
+        u.UserID, u.Username, u.Email, u.PhoneNumber, u.FirstName, u.LastName,
+        u.Role, u.ProfilePictureURL, u.RegistrationDate, u.LastLoginDate, 
+        u.IsVerified, u.AverageProviderRating, u.AverageSeekerRating,
+        a.StreetName, a.City, a.PostalCode
+      FROM User u
+      LEFT JOIN Address a ON u.AddressLine1 = a.AddressID
+      WHERE u.UserID = ?
     `;
     conn.query(query, [userId], (err, results) => {
       if (err) return reject(err);
@@ -600,6 +601,95 @@ authDataPool.updateLastLogin = (userId) => {
 //                      BOOKING OPERATIONS
 // ===============================================================
 
+authDataPool.getListingsByProvider = (providerId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+            SELECT 
+                l.ListingID, l.Title, l.Description, l.PricePerUnit, l.StorageType,
+                l.TotalCapacity_Slots, l.CapacitySQMeter,
+                a.City, a.StreetName,
+                att.FileURL AS PrimaryImage
+            FROM Listing l
+            JOIN Address a ON l.AddressID = a.AddressID
+            LEFT JOIN Attachment att ON l.ListingID = att.ListingID AND att.IsPrimary = 1
+            WHERE l.ProviderID = ?
+            ORDER BY l.CreationDate DESC;
+        `;
+    conn.query(query, [providerId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
+authDataPool.getBookingRequestsByListing = (listingId, providerId) => {
+  return new Promise((resolve, reject) => {
+    // This query ensures the user requesting is the owner of the listing
+    const query = `
+            SELECT 
+                b.BookingID, b.StartDate, b.EndDate, b.TotalCost, b.BookingStatus,
+                u.Username AS SeekerName
+            FROM Booking b
+            JOIN User u ON b.SeekerID = u.UserID
+            JOIN Listing l ON b.ListingID = l.ListingID
+            WHERE b.ListingID = ? AND l.ProviderID = ? AND b.BookingStatus = 'Pending'
+            ORDER BY b.RequestDate DESC;
+        `;
+    conn.query(query, [listingId, providerId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
+authDataPool.updateBookingStatus = (bookingId, status, providerId) => {
+  return new Promise((resolve, reject) => {
+    // This query ensures the user updating is the owner of the listing associated with the booking
+    const query = `
+            UPDATE Booking b
+            JOIN Listing l ON b.ListingID = l.ListingID
+            SET b.BookingStatus = ?
+            WHERE b.BookingID = ? AND l.ProviderID = ?;
+        `;
+    conn.query(query, [status, bookingId, providerId], (err, result) => {
+      if (err) return reject(err);
+      if (result.affectedRows === 0) {
+        return resolve({
+          success: false,
+          message:
+            "Booking not found or you do not have permission to update it.",
+        });
+      }
+      resolve({
+        success: true,
+        message: `Booking status updated to ${status}.`,
+      });
+    });
+  });
+};
+
+authDataPool.getBookingsBySeeker = (seekerId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+            SELECT 
+                b.BookingID, b.StartDate, b.EndDate, b.TotalCost, b.BookingStatus,
+                l.ListingID, l.Title, l.PricePerUnit, l.PriceUnit, l.StorageType, 
+                l.TotalCapacity_Slots, l.CapacitySQMeter,
+                a.City, a.StreetName,
+                att.FileURL AS PrimaryImage
+            FROM Booking b
+            JOIN Listing l ON b.ListingID = l.ListingID
+            JOIN Address a ON l.AddressID = a.AddressID
+            LEFT JOIN Attachment att ON l.ListingID = att.ListingID AND att.IsPrimary = 1
+            WHERE b.SeekerID = ?
+            ORDER BY b.RequestDate DESC;
+        `;
+    conn.query(query, [seekerId], (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
 // ===============================================================
 //                        MODULE EXPORTS
 // ===============================================================
