@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const path = require("path");
+const port = 3080;
 //Basic packages
 require("dotenv").config();
 
@@ -24,14 +25,18 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 
 const allowedOrigins = [
+  "http://localhost:3081",
+  "http://localhost:3000",
+  "https://localhost:3081",
   "http://88.200.63.148:3081",
-  "https://casa-box.vercel.app/",
+  "http://88.200.63.148:3080",
+  "https://casa-box.vercel.app",
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps or curl requests)
+      // console.log(`CORS Origin Check: ${origin}`);
       if (!origin) return callback(null, true);
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg =

@@ -69,6 +69,12 @@ const getOrCreateAddress = (addressData, dbConnection) => {
   });
 };
 
+const formatMySqlDateTime = (date) => {
+  if (!date) return null;
+  // Converts JS date to 'YYYY-MM-DD HH:MM:SS so bookings can be stored in MySQL'
+  return new Date(date).toISOString().slice(0, 19).replace("T", " ");
+};
+
 // ===============================================================
 //                     AUTHENTICATION DATA POOL
 // ===============================================================
@@ -275,6 +281,128 @@ authDataPool.createUser = (userData) => {
   });
 };
 
+authDataPool.createBooking = (bookingData) => {
+  return new Promise((resolve) => {
+    conn.beginTransaction(async (transactionErr) => {
+      if (transactionErr)
+        return resolve({ success: false, message: "DB transaction error." });
+      try {
+        const {
+          listingId,
+          seekerId,
+          startDate,
+          endDate,
+          totalCost,
+          storageType,
+          items,
+          requestedSqm,
+        } = bookingData;
+        const bookingQuery = `INSERT INTO Booking (ListingID, SeekerID, StartDate, EndDate, TotalCost, RequestDate, BookingStatus) VALUES (?, ?, ?, ?, ?, NOW(), 'Pending')`;
+        const bookingValues = [
+          listingId,
+          seekerId,
+          formatMySqlDateTime(startDate),
+          formatMySqlDateTime(endDate),
+          totalCost,
+        ];
+        conn.query(bookingQuery, bookingValues, (bookingErr, bookingResult) => {
+          if (bookingErr) {
+            console.error("DB error creating booking:", bookingErr);
+            return conn.rollback(() =>
+              resolve({
+                success: false,
+                message: "DB error on booking creation.",
+              })
+            );
+          }
+          const newBookingId = bookingResult.insertId;
+          if (storageType === "ItemSlot" && items.length > 0) {
+            const bookingItemsQuery = `INSERT INTO BookingItem (BookingID, CategoryID, Quantity) VALUES ?`;
+            const bookingItemsValues = items.map((item) => [
+              newBookingId,
+              item.categoryId,
+              item.quantity,
+            ]);
+            conn.query(bookingItemsQuery, [bookingItemsValues], (itemsErr) => {
+              if (itemsErr) {
+                console.error("DB error creating booking items:", itemsErr);
+                return conn.rollback(() =>
+                  resolve({
+                    success: false,
+                    message: "DB error on booking item creation.",
+                  })
+                );
+              }
+              conn.commit((commitErr) => {
+                if (commitErr)
+                  return conn.rollback(() =>
+                    resolve({ success: false, message: "DB commit error." })
+                  );
+                resolve({
+                  success: true,
+                  message: "Booking created successfully!",
+                  data: { bookingId: newBookingId },
+                });
+              });
+            });
+          } else if (storageType === "SquareMeter") {
+            const updateBookingQuery = `UPDATE Booking SET RequestedCapacity_SQMeters = ? WHERE BookingID = ?`;
+            conn.query(
+              updateBookingQuery,
+              [requestedSqm, newBookingId],
+              (updateErr) => {
+                if (updateErr) {
+                  console.error(
+                    "DB error updating booking capacity:",
+                    updateErr
+                  ); // Added logging
+                  return conn.rollback(() =>
+                    resolve({
+                      success: false,
+                      message: "DB error updating booking capacity.",
+                    })
+                  );
+                }
+                conn.commit((commitErr) => {
+                  if (commitErr)
+                    return conn.rollback(() =>
+                      resolve({ success: false, message: "DB commit error." })
+                    );
+                  resolve({
+                    success: true,
+                    message: "Booking created successfully!",
+                    data: { bookingId: newBookingId },
+                  });
+                });
+              }
+            );
+          } else {
+            conn.commit((commitErr) => {
+              if (commitErr)
+                return conn.rollback(() =>
+                  resolve({ success: false, message: "DB commit error." })
+                );
+              resolve({
+                success: true,
+                message: "Booking created successfully!",
+                data: { bookingId: newBookingId },
+              });
+            });
+          }
+        });
+      } catch (error) {
+        console.error("Transaction error in createBooking:", error);
+        conn.rollback(() =>
+          resolve({
+            success: false,
+            message: "Internal error during booking creation.",
+          })
+        );
+      }
+    });
+  });
+};
+
 authDataPool.createListing = (listingData) => {
   return new Promise((resolve) => {
     conn.beginTransaction(async (transactionErr) => {
@@ -414,141 +542,6 @@ authDataPool.updateLastLogin = (userId) => {
 // ===============================================================
 //                      BOOKING OPERATIONS
 // ===============================================================
-
-authDataPool.createBooking = (bookingData) => {
-  return new Promise((resolve) => {
-    conn.beginTransaction(async (transactionErr) => {
-      if (transactionErr)
-        return resolve({ success: false, message: "DB transaction error." });
-
-      try {
-        const {
-          listingId,
-          seekerId,
-          startDate,
-          endDate,
-          totalCost,
-          storageType,
-          items,
-          requestedSqm,
-        } = bookingData;
-
-        // 1. Insert into Booking table
-        const bookingQuery = `
-          INSERT INTO Booking (ListingID, SeekerID, StartDate, EndDate, TotalCost, RequestDate, BookingStatus)
-          VALUES (?, ?, ?, ?, ?, NOW(), 'Pending')`;
-        const bookingValues = [
-          listingId,
-          seekerId,
-          startDate,
-          endDate,
-          totalCost,
-        ];
-
-        conn.query(bookingQuery, bookingValues, (bookingErr, bookingResult) => {
-          if (bookingErr) {
-            console.error("DB error creating booking:", bookingErr);
-            return conn.rollback(() =>
-              resolve({
-                success: false,
-                message: "DB error on booking creation.",
-              })
-            );
-          }
-
-          const newBookingId = bookingResult.insertId;
-
-          // 2. If it's an ItemSlot booking, insert into BookingItem table
-          if (storageType === "ItemSlot" && items.length > 0) {
-            const bookingItemsQuery = `INSERT INTO BookingItem (BookingID, CategoryID, Quantity) VALUES ?`;
-            const bookingItemsValues = items.map((item) => [
-              newBookingId,
-              item.categoryId,
-              item.quantity,
-            ]);
-
-            conn.query(
-              bookingItemsQuery,
-              [bookingItemsValues],
-              (itemsErr, itemsResult) => {
-                if (itemsErr) {
-                  console.error("DB error creating booking items:", itemsErr);
-                  return conn.rollback(() =>
-                    resolve({
-                      success: false,
-                      message: "DB error on booking item creation.",
-                    })
-                  );
-                }
-                // Commit after both inserts are successful
-                conn.commit((commitErr) => {
-                  if (commitErr)
-                    return conn.rollback(() =>
-                      resolve({ success: false, message: "DB commit error." })
-                    );
-                  resolve({
-                    success: true,
-                    message: "Booking created successfully!",
-                    data: { bookingId: newBookingId },
-                  });
-                });
-              }
-            );
-          } else if (storageType === "SquareMeter") {
-            // If SQM, update the booking with the requested capacity
-            const updateBookingQuery = `UPDATE Booking SET RequestedCapacity_SQMeters = ? WHERE BookingID = ?`;
-            conn.query(
-              updateBookingQuery,
-              [requestedSqm, newBookingId],
-              (updateErr, updateResult) => {
-                if (updateErr) {
-                  return conn.rollback(() =>
-                    resolve({
-                      success: false,
-                      message: "DB error updating booking capacity.",
-                    })
-                  );
-                }
-                conn.commit((commitErr) => {
-                  if (commitErr)
-                    return conn.rollback(() =>
-                      resolve({ success: false, message: "DB commit error." })
-                    );
-                  resolve({
-                    success: true,
-                    message: "Booking created successfully!",
-                    data: { bookingId: newBookingId },
-                  });
-                });
-              }
-            );
-          } else {
-            // If it's an ItemSlot booking with no items, just commit
-            conn.commit((commitErr) => {
-              if (commitErr)
-                return conn.rollback(() =>
-                  resolve({ success: false, message: "DB commit error." })
-                );
-              resolve({
-                success: true,
-                message: "Booking created successfully!",
-                data: { bookingId: newBookingId },
-              });
-            });
-          }
-        });
-      } catch (error) {
-        console.error("Transaction error in createBooking:", error);
-        conn.rollback(() =>
-          resolve({
-            success: false,
-            message: "Internal error during booking creation.",
-          })
-        );
-      }
-    });
-  });
-};
 
 // ===============================================================
 //                        MODULE EXPORTS
