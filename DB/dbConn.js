@@ -240,7 +240,7 @@ authDataPool.createUser = (userData) => {
         );
         const passwordHash = await bcrypt.hash(password, 12);
         const userQuery = `
-          INSERT INTO User (Username, PasswordHash, Email, Role, RegistrationDate, IsVerified, AddressID1) 
+          INSERT INTO User (Username, PasswordHash, Email, Role, RegistrationDate, IsVerified, AddressLine1) 
           VALUES (?, ?, ?, ?, NOW(), ?, ?)`;
         const userValues = [
           username,
@@ -688,6 +688,33 @@ authDataPool.getBookingsBySeeker = (seekerId) => {
       if (err) return reject(err);
       resolve(results);
     });
+  });
+};
+
+authDataPool.updateListingDetails = (listingId, details, providerId) => {
+  return new Promise((resolve, reject) => {
+    const { title, description, price, priceUnit } = details;
+    // This query ensures that only the owner of the listing can update it
+    const query = `
+            UPDATE Listing 
+            SET Title = ?, Description = ?, PricePerUnit = ?, PriceUnit = ?
+            WHERE ListingID = ? AND ProviderID = ?;
+        `;
+    conn.query(
+      query,
+      [title, description, parseFloat(price), priceUnit, listingId, providerId],
+      (err, result) => {
+        if (err) return reject(err);
+        if (result.affectedRows === 0) {
+          return resolve({
+            success: false,
+            message:
+              "Listing not found or you do not have permission to edit it.",
+          });
+        }
+        resolve({ success: true, message: "Listing updated successfully." });
+      }
+    );
   });
 };
 // ===============================================================

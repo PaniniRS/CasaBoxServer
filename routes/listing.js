@@ -207,4 +207,23 @@ router.get("/seeker/mine", async (req, res) => {
   }
 });
 
+// POST /listings/:id/update - Updates the details of a listing
+router.post("/:id/update", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  try {
+    const result = await authDataPool.updateListingDetails(
+      req.params.id,
+      req.body,
+      req.session.userId
+    );
+    res.json(result);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to update listing." });
+  }
+});
+
 module.exports = router;
