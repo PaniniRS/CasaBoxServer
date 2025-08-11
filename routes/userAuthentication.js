@@ -1,7 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const { authDataPool } = require("../DB/dbConn.js"); // Adjust the path as needed
-
+const multer = require("multer");
+const path = require("path");
+// --- Multer Configuration for Profile Pictures ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, "profile-" + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage: storage });
 // ===============================================================
 //                      AUTHENTICATION ROUTES
 // ===============================================================
@@ -68,6 +78,53 @@ router.get("/session", async (req, res) => {
   } else {
     // If no session exists, the user is not logged in
     res.json({ success: false, message: "No active session." });
+  }
+});
+
+// POST /auth/update-profile-picture
+router.post(
+  "/update-picture",
+  upload.single("profilePicture"),
+  async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No file uploaded." });
+    }
+
+    try {
+      const result = await authDataPool.updateProfilePicture(
+        req.session.userId,
+        req.file.path
+      );
+      res.json(result);
+    } catch (error) {
+      res
+        .status(500)
+        .json({ success: false, message: "Server error updating picture." });
+    }
+  }
+);
+
+// POST /auth/update-details
+router.post("/update-details", async (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  try {
+    const result = await authDataPool.updateUserDetails(
+      req.session.userId,
+      req.body
+    );
+    res.json(result);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Server error updating details." });
   }
 });
 

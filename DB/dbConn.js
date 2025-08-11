@@ -496,6 +496,63 @@ authDataPool.createListing = (listingData) => {
 };
 
 // ===============================================================
+//                    USER PROFILE UPDATES
+// ===============================================================
+authDataPool.updateProfilePicture = (userId, filePath) => {
+  return new Promise((resolve, reject) => {
+    const query = "UPDATE User SET ProfilePictureURL = ? WHERE UserID = ?";
+    conn.query(query, [filePath, userId], (err, result) => {
+      if (err) return reject(err);
+      resolve({
+        success: true,
+        message: "Profile picture updated.",
+        data: { filePath },
+      });
+    });
+  });
+};
+
+authDataPool.updateUserDetails = async (userId, userDetails) => {
+  try {
+    const { firstName, lastName, email, phoneNumber, currentPassword } =
+      userDetails;
+
+    // First, verify the user's current password
+    const users = await authDataPool.getUserById(userId);
+    if (users.length === 0)
+      return { success: false, message: "User not found." };
+
+    const user = users[0];
+    const passwordMatch = await bcrypt.compare(
+      currentPassword,
+      user.PasswordHash
+    );
+    if (!passwordMatch)
+      return { success: false, message: "Incorrect password." };
+
+    // If password is correct, proceed with the update
+    return new Promise((resolve, reject) => {
+      const query =
+        "UPDATE User SET FirstName = ?, LastName = ?, Email = ?, PhoneNumber = ? WHERE UserID = ?";
+      conn.query(
+        query,
+        [firstName, lastName, email, phoneNumber, userId],
+        (err, result) => {
+          if (err) return reject(err);
+          resolve({
+            success: true,
+            message: "Account details updated successfully.",
+          });
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Error updating user details:", error);
+    return { success: false, message: "Internal server error." };
+  }
+};
+
+// ===============================================================
 //                    USER AUTHENTICATION & UPDATES
 // ===============================================================
 
